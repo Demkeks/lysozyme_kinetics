@@ -2,6 +2,15 @@
 
 Repository for lysozyme kinetics measurements exported from a Hitachi U-5100 spectrophotometer.
 
+## Dependencies
+
+This project is built with Python 3.12.3.
+To run these scripts, create a virtual environment and install the dependencies (including matplotlib 3.10.8):
+
+```bash
+pip install -r requirements.txt
+```
+
 ## Structure
 
 - `datasets/arbonal/` - measurements from arbonal set
@@ -31,7 +40,7 @@ Each output CSV contains only:
 Compute:
 
 - slope of segment 1 (baseline)
-- slope of segment 3 using the best 10-point linear window (max `R^2`, window start searched in first 2 points of segment 3)
+- slope of segment 3 using the best 10-point linear window (max `R^2`, window start is searched within the first 2 points of segment 3)
 - final slope: `abs(segment3_slope) - abs(segment1_slope)` (positive rate)
 - all slopes are reported in `Abs/s`
 - summary stats across replicates (`_1`, `_2`, `_3`):
@@ -66,7 +75,7 @@ python3 src/plot_selected_txt.py \
   --txt-files 10cells_970buffer_20imaz_lsz_1.TXT 20cells_960buffer_20imaz_lsz_1.TXT 30cells_950buffer_20imaz_lsz_3.TXT
 ```
 
-All files from directory:
+All files from a directory:
 
 ```bash
 python3 src/plot_selected_txt.py \
