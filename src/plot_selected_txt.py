@@ -29,6 +29,10 @@ def resolve_txt_files(input_root: Path, selected_files: Sequence[str]) -> List[P
     return resolved
 
 
+def list_txt_files(input_root: Path) -> List[Path]:
+    return sorted(input_root.glob("*.TXT"))
+
+
 def quantile(values: Sequence[float], q: float) -> float:
     if not values:
         raise ValueError("Cannot compute quantile of empty sequence.")
@@ -134,11 +138,16 @@ def main() -> None:
     parser.add_argument("--output-dir", type=Path, default=Path("plots"))
     parser.add_argument("--window-size", type=int, default=DEFAULT_WINDOW_SIZE)
     parser.add_argument("--candidate-starts", type=int, default=DEFAULT_CANDIDATE_STARTS)
-    parser.add_argument(
+    group = parser.add_mutually_exclusive_group(required=True)
+    group.add_argument(
         "--txt-files",
         nargs="+",
-        required=True,
         help="Selected TXT files (relative to --input-root or absolute paths).",
+    )
+    group.add_argument(
+        "--all-files",
+        action="store_true",
+        help="Plot all .TXT files found directly inside --input-root.",
     )
     args = parser.parse_args()
 
@@ -149,7 +158,13 @@ def main() -> None:
             "matplotlib is required for plotting. Install it first, e.g. `pip install matplotlib`."
         ) from exc
 
-    files = resolve_txt_files(args.input_root, args.txt_files)
+    if args.all_files:
+        files = list_txt_files(args.input_root)
+        if not files:
+            raise SystemExit(f"No .TXT files found under: {args.input_root}")
+    else:
+        files = resolve_txt_files(args.input_root, args.txt_files)
+
     for txt_path in files:
         output_path = plot_one_file(
             txt_path=txt_path,
