@@ -10,17 +10,74 @@ Repository for lysozyme kinetics measurements exported from a Hitachi U-5100 spe
 
 ## Parse raw TXT files
 
-Generate normalized CSV tables from all `.TXT` files:
+Generate per-file Data Points CSV from all `.TXT` files:
 
 ```bash
-python3 src/parse_kinetics_txt.py --input-root datasets --output-dir datasets/processed
+python3 src/parse_kinetics_txt.py --input-root data_samples/input --output-dir data_samples/processed
 ```
 
-This command writes:
+This command writes one CSV per input file with mirrored folder structure, e.g.:
 
-- `datasets/processed/runs.csv` - run-level metadata and kinetic summary
-- `datasets/processed/peaks.csv` - peak table
-- `datasets/processed/data_points.csv` - time series (`time_s`, `absorbance`)
+- `datasets/processed/arbonal/10cells_970buffer_20imaz_lsz_1.csv`
+- `datasets/processed/humat/10cells_970buffer_20imaz_hum_lsz_1.csv`
+
+Each output CSV contains only:
+
+- `time_s`
+- `absorbance`
+
+## Analyze slopes and export XLSX
+
+Compute:
+
+- slope of segment 1 (baseline)
+- slope of segment 3 using the best 10-point linear window (max `R^2`, window start searched in first 2 points of segment 3)
+- final slope: `abs(segment3_slope) - abs(segment1_slope)` (positive rate)
+- all slopes are reported in `Abs/s`
+- summary stats across replicates (`_1`, `_2`, `_3`):
+  - `segment1` and `segment3`: mean only
+  - `final`: mean, standard deviation, and 95% confidence interval
+
+Command:
+
+```bash
+python3 src/analyze_slopes.py --input-root data_samples/processed --output-xlsx data_samples/processed/final.xlsx
+```
+
+Workbook sheets:
+
+- `per_measurement` - one row per measurement file
+- `summary` - aggregated statistics per condition
+
+## Plot selected TXT files
+
+Build plots for selected `.TXT` files:
+
+- figure 1: full signal overview
+- figure 2: close-up around segment 3 with best 10-point linear fit
+- both figures are saved in a single PNG (two subplots)
+
+Command example:
+
+```bash
+python3 src/plot_selected_txt.py \
+  --input-root data_samples/input \
+  --output-dir data_samples/plots \
+  --txt-files 10cells_970buffer_20imaz_lsz_1.TXT 20cells_960buffer_20imaz_lsz_1.TXT 30cells_950buffer_20imaz_lsz_3.TXT
+```
+
+All files from directory:
+
+```bash
+python3 src/plot_selected_txt.py \
+  --input-root data_samples/input \
+  --output-dir data_samples/plots \
+  --all-files
+```
+
+Output per selected file:
+
+- `<name>_plots.png`
 
 ## Notes
 
