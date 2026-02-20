@@ -15,7 +15,7 @@ from xml.sax.saxutils import escape
 
 REPLICATE_RE = re.compile(r"^(?P<condition>.+)_(?P<replicate>\d+)$")
 DEFAULT_WINDOW_SIZE = 10
-DEFAULT_CANDIDATE_STARTS = 3
+DEFAULT_CANDIDATE_STARTS = 2
 
 # Two-sided t critical values for alpha=0.05 (95% CI), df=1..30.
 T_CRIT_95: Dict[int, float] = {
