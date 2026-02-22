@@ -53,6 +53,14 @@ Command:
 python3 src/analyze_slopes.py --input-root data_samples/processed --output-xlsx data_samples/processed/final.xlsx
 ```
 
+Optional robustness flag for baseline fit:
+
+```bash
+--segment1-trim-points 2
+```
+
+This excludes the last N points of segment 1 before fitting its line.
+
 Workbook sheets:
 
 - `per_measurement` - one row per measurement file

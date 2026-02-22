@@ -16,6 +16,7 @@ from xml.sax.saxutils import escape
 REPLICATE_RE = re.compile(r"^(?P<condition>.+)_(?P<replicate>\d+)$")
 DEFAULT_WINDOW_SIZE = 10
 DEFAULT_CANDIDATE_STARTS = 2
+DEFAULT_SEGMENT1_TRIM_POINTS = 2
 
 # Two-sided t critical values for alpha=0.05 (95% CI), df=1..30.
 T_CRIT_95: Dict[int, float] = {
@@ -216,14 +217,16 @@ def analyze_file(
     input_root: Path,
     window_size: int,
     candidate_starts: int,
+    segment1_trim_points: int,
 ) -> MeasurementResult:
     points = read_points(csv_path)
     if len(points) < window_size + 2:
         raise ValueError(f"Not enough points in {csv_path}")
 
     segment1_end_idx, segment3_start_idx = detect_segment_boundaries(points, window_size=window_size)
+    segment1_fit_end_idx = max(1, segment1_end_idx - segment1_trim_points)
 
-    segment1_points = points[: segment1_end_idx + 1]
+    segment1_points = points[: segment1_fit_end_idx + 1]
     segment1_fit = linear_fit(segment1_points)
 
     segment3_fit, offset = pick_best_window(
@@ -247,7 +250,7 @@ def analyze_file(
         replicate=replicate,
         source_file=rel.as_posix(),
         n_points=len(points),
-        segment1_end_time_s=points[segment1_end_idx][0],
+        segment1_end_time_s=points[segment1_fit_end_idx][0],
         segment3_start_time_s=points[segment3_start_idx][0],
         segment1_fit=segment1_fit,
         segment3_fit=segment3_fit,
@@ -542,12 +545,20 @@ def main() -> None:
     parser.add_argument("--output-xlsx", type=Path, default=Path("datasets/processed/slopes_analysis.xlsx"))
     parser.add_argument("--window-size", type=int, default=DEFAULT_WINDOW_SIZE)
     parser.add_argument(
+        "--segment1-trim-points",
+        type=int,
+        default=DEFAULT_SEGMENT1_TRIM_POINTS,
+        help="Drop last N points of segment 1 (before the first jump) before linear regression.",
+    )
+    parser.add_argument(
         "--candidate-starts",
         type=int,
         default=DEFAULT_CANDIDATE_STARTS,
         help="Try window starts within first N points of segment 3 and pick the fit with max R^2.",
     )
     args = parser.parse_args()
+    if args.segment1_trim_points < 0:
+        raise SystemExit("--segment1-trim-points must be >= 0")
 
     input_files = find_input_files(args.input_root)
     if not input_files:
@@ -562,6 +573,7 @@ def main() -> None:
                 input_root=args.input_root,
                 window_size=args.window_size,
                 candidate_starts=args.candidate_starts,
+                segment1_trim_points=args.segment1_trim_points,
             )
             results.append(result)
         except Exception as exc:
