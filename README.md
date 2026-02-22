@@ -5,7 +5,7 @@ Repository for lysozyme kinetics measurements exported from a Hitachi U-5100 spe
 ## Dependencies
 
 This project is built with Python 3.12.3.
-To run these scripts, create a virtual environment and install the dependencies (including matplotlib 3.10.8):
+To run plot_selected_txt.py, create a virtual environment and install the dependencies (including matplotlib 3.10.8):
 
 ```bash
 pip install -r requirements.txt
@@ -13,9 +13,9 @@ pip install -r requirements.txt
 
 ## Structure
 
-- `datasets/arbonal/` - measurements from arbonal set
-- `datasets/humat/` - measurements from humat set
-- `src/` - parsing scripts
+- `data_samples/input/` - example of raw .TXT files
+- `data_samples/processed/` - results of parse_kinetics.py and analyze_slopes.py
+- `data_samples/plots/` - resulting plots, result of plot_selected_txt.py
 
 ## Parse raw TXT files
 
@@ -99,4 +99,3 @@ Output per selected file:
 ## Notes
 
 - Raw files are kept unchanged.
-- Output folder is ignored by git (`datasets/processed/`).
