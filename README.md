@@ -5,7 +5,7 @@ Repository for lysozyme kinetics measurements exported from a Hitachi U-5100 spe
 ## Dependencies
 
 This project is built with Python 3.12.3.
-To run plot_selected_txt.py, create a virtual environment and install the dependencies (including matplotlib 3.10.8):
+To run the scripts, create a virtual environment and install dependencies (including `matplotlib`, `pandas`, and `openpyxl`):
 
 ```bash
 pip install -r requirements.txt
@@ -52,6 +52,8 @@ Command:
 ```bash
 python3 src/analyze_slopes.py --input-root data_samples/processed --output-xlsx data_samples/processed/final.xlsx
 ```
+
+Internally, analysis tables are assembled as `pandas.DataFrame` objects and then exported to Excel via `pandas.ExcelWriter`.
 
 Optional robustness flag for baseline fit:
 

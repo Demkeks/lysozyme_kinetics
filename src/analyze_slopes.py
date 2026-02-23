@@ -5,12 +5,12 @@ import argparse
 import csv
 import math
 import re
-import zipfile
 from dataclasses import dataclass
 from pathlib import Path
 from statistics import mean, median, stdev
-from typing import Dict, Iterable, List, Optional, Sequence, Tuple
-from xml.sax.saxutils import escape
+from typing import Dict, List, Optional, Sequence, Tuple
+
+import pandas as pd
 
 
 REPLICATE_RE = re.compile(r"^(?P<condition>.+)_(?P<replicate>\d+)$")
@@ -277,71 +277,32 @@ def summarize(values: Sequence[float]) -> Tuple[float, Optional[float], Optional
     return m, s, m - half_width, m + half_width
 
 
-def safe_number(value: Optional[float]) -> object:
-    if value is None:
-        return ""
-    if isinstance(value, float) and (math.isnan(value) or math.isinf(value)):
-        return ""
-    return value
-
-
-def build_measurement_rows(results: Sequence[MeasurementResult]) -> List[List[object]]:
-    rows: List[List[object]] = [
-        [
-            "cohort",
-            "condition_id",
-            "replicate",
-            "source_file",
-            "n_points",
-            "segment1_end_time_s",
-            "segment3_start_time_s",
-            "segment1_slope_abs_per_s",
-            "segment1_r2",
-            "segment3_window_start_time_s",
-            "segment3_window_end_time_s",
-            "segment3_slope_abs_per_s",
-            "segment3_r2",
-            "final_slope_abs_per_s",
-        ]
-    ]
-
+def build_measurement_df(results: Sequence[MeasurementResult]) -> pd.DataFrame:
+    rows: List[Dict[str, object]] = []
     for r in sorted(results, key=lambda x: (x.cohort, x.condition_id, x.replicate or 0, x.source_file)):
         rows.append(
-            [
-                r.cohort,
-                r.condition_id,
-                r.replicate if r.replicate is not None else "",
-                r.source_file,
-                r.n_points,
-                r.segment1_end_time_s,
-                r.segment3_start_time_s,
-                r.segment1_fit.slope_per_s,
-                r.segment1_fit.r2,
-                r.segment3_window_start_time_s,
-                r.segment3_window_end_time_s,
-                r.segment3_fit.slope_per_s,
-                r.segment3_fit.r2,
-                r.final_slope_per_s,
-            ]
+            {
+                "cohort": r.cohort,
+                "condition_id": r.condition_id,
+                "replicate": r.replicate,
+                "source_file": r.source_file,
+                "n_points": r.n_points,
+                "segment1_end_time_s": r.segment1_end_time_s,
+                "segment3_start_time_s": r.segment3_start_time_s,
+                "segment1_slope_abs_per_s": r.segment1_fit.slope_per_s,
+                "segment1_r2": r.segment1_fit.r2,
+                "segment3_window_start_time_s": r.segment3_window_start_time_s,
+                "segment3_window_end_time_s": r.segment3_window_end_time_s,
+                "segment3_slope_abs_per_s": r.segment3_fit.slope_per_s,
+                "segment3_r2": r.segment3_fit.r2,
+                "final_slope_abs_per_s": r.final_slope_per_s,
+            }
         )
-    return rows
+    return pd.DataFrame(rows)
 
 
-def build_summary_rows(results: Sequence[MeasurementResult]) -> List[List[object]]:
-    rows: List[List[object]] = [
-        [
-            "cohort",
-            "condition_id",
-            "n_repeats",
-            "segment1_mean_abs_per_s",
-            "segment3_mean_abs_per_s",
-            "final_mean_abs_per_s",
-            "final_std_abs_per_s",
-            "final_ci95_low_abs_per_s",
-            "final_ci95_high_abs_per_s",
-        ]
-    ]
-
+def build_summary_df(results: Sequence[MeasurementResult]) -> pd.DataFrame:
+    rows: List[Dict[str, object]] = []
     grouped: Dict[Tuple[str, str], List[MeasurementResult]] = {}
     for r in results:
         grouped.setdefault((r.cohort, r.condition_id), []).append(r)
@@ -350,187 +311,22 @@ def build_summary_rows(results: Sequence[MeasurementResult]) -> List[List[object
         s1 = [x.segment1_fit.slope_per_s for x in items]
         s3 = [x.segment3_fit.slope_per_s for x in items]
         sf = [x.final_slope_per_s for x in items]
-
         sf_stats = summarize(sf)
 
         rows.append(
-            [
-                cohort,
-                condition_id,
-                len(items),
-                safe_number(mean(s1)),
-                safe_number(mean(s3)),
-                safe_number(sf_stats[0]),
-                safe_number(sf_stats[1]),
-                safe_number(sf_stats[2]),
-                safe_number(sf_stats[3]),
-            ]
+            {
+                "cohort": cohort,
+                "condition_id": condition_id,
+                "n_repeats": len(items),
+                "segment1_mean_abs_per_s": mean(s1),
+                "segment3_mean_abs_per_s": mean(s3),
+                "final_mean_abs_per_s": sf_stats[0],
+                "final_std_abs_per_s": sf_stats[1],
+                "final_ci95_low_abs_per_s": sf_stats[2],
+                "final_ci95_high_abs_per_s": sf_stats[3],
+            }
         )
-    return rows
-
-
-def col_name(index: int) -> str:
-    # 1-based column index -> Excel letters.
-    name = ""
-    n = index
-    while n > 0:
-        n, rem = divmod(n - 1, 26)
-        name = chr(65 + rem) + name
-    return name
-
-
-def cell_ref(row_idx: int, col_idx: int) -> str:
-    return f"{col_name(col_idx)}{row_idx}"
-
-
-def is_number(value: object) -> bool:
-    return isinstance(value, (int, float)) and not isinstance(value, bool) and not (
-        isinstance(value, float) and (math.isnan(value) or math.isinf(value))
-    )
-
-
-def build_sheet_xml(rows: Sequence[Sequence[object]], shared_strings: Dict[str, int]) -> str:
-    row_xml: List[str] = []
-    max_col = max((len(r) for r in rows), default=1)
-    for r_idx, row in enumerate(rows, start=1):
-        cells: List[str] = []
-        for c_idx, value in enumerate(row, start=1):
-            ref = cell_ref(r_idx, c_idx)
-            if value is None or value == "":
-                continue
-            if is_number(value):
-                cells.append(f'<c r="{ref}"><v>{value}</v></c>')
-            else:
-                text = str(value)
-                sid = shared_strings[text]
-                cells.append(f'<c r="{ref}" t="s"><v>{sid}</v></c>')
-        row_xml.append(f'<row r="{r_idx}">{"".join(cells)}</row>')
-
-    dimension = f"A1:{col_name(max_col)}{max(1, len(rows))}"
-    return (
-        '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
-        '<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">'
-        f'<dimension ref="{dimension}"/>'
-        '<sheetData>'
-        f'{"".join(row_xml)}'
-        "</sheetData>"
-        "</worksheet>"
-    )
-
-
-def build_shared_strings(sheets: Sequence[Sequence[Sequence[object]]]) -> Tuple[Dict[str, int], str]:
-    lookup: Dict[str, int] = {}
-    strings: List[str] = []
-
-    for rows in sheets:
-        for row in rows:
-            for value in row:
-                if value is None or value == "":
-                    continue
-                if is_number(value):
-                    continue
-                text = str(value)
-                if text not in lookup:
-                    lookup[text] = len(strings)
-                    strings.append(text)
-
-    si = "".join(f"<si><t>{escape(s)}</t></si>" for s in strings)
-    xml = (
-        '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
-        '<sst xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" '
-        f'count="{len(strings)}" uniqueCount="{len(strings)}">'
-        f"{si}</sst>"
-    )
-    return lookup, xml
-
-
-def write_xlsx(path: Path, sheets: Sequence[Tuple[str, Sequence[Sequence[object]]]]) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-
-    sheet_rows = [rows for _, rows in sheets]
-    shared_lookup, shared_xml = build_shared_strings(sheet_rows)
-    sheet_xml = [build_sheet_xml(rows, shared_lookup) for rows in sheet_rows]
-
-    workbook_xml = (
-        '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
-        '<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" '
-        'xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">'
-        "<sheets>"
-        + "".join(
-            f'<sheet name="{escape(name)}" sheetId="{idx}" r:id="rId{idx}"/>'
-            for idx, (name, _) in enumerate(sheets, start=1)
-        )
-        + "</sheets></workbook>"
-    )
-
-    workbook_rels_xml = (
-        '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
-        '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">'
-        + "".join(
-            f'<Relationship Id="rId{idx}" '
-            'Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" '
-            f'Target="worksheets/sheet{idx}.xml"/>'
-            for idx in range(1, len(sheets) + 1)
-        )
-        + f'<Relationship Id="rId{len(sheets) + 1}" '
-        'Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" '
-        'Target="styles.xml"/>'
-        + f'<Relationship Id="rId{len(sheets) + 2}" '
-        'Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/sharedStrings" '
-        'Target="sharedStrings.xml"/>'
-        + "</Relationships>"
-    )
-
-    root_rels_xml = (
-        '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
-        '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">'
-        '<Relationship Id="rId1" '
-        'Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" '
-        'Target="xl/workbook.xml"/>'
-        "</Relationships>"
-    )
-
-    styles_xml = (
-        '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
-        '<styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">'
-        '<fonts count="1"><font><sz val="11"/><name val="Calibri"/></font></fonts>'
-        '<fills count="2"><fill><patternFill patternType="none"/></fill>'
-        '<fill><patternFill patternType="gray125"/></fill></fills>'
-        '<borders count="1"><border><left/><right/><top/><bottom/><diagonal/></border></borders>'
-        '<cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs>'
-        '<cellXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/></cellXfs>'
-        '<cellStyles count="1"><cellStyle name="Normal" xfId="0" builtinId="0"/></cellStyles>'
-        "</styleSheet>"
-    )
-
-    content_types_xml = (
-        '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
-        '<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">'
-        '<Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>'
-        '<Default Extension="xml" ContentType="application/xml"/>'
-        '<Override PartName="/xl/workbook.xml" '
-        'ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/>'
-        + "".join(
-            f'<Override PartName="/xl/worksheets/sheet{idx}.xml" '
-            'ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>'
-            for idx in range(1, len(sheets) + 1)
-        )
-        + '<Override PartName="/xl/styles.xml" '
-        'ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml"/>'
-        + '<Override PartName="/xl/sharedStrings.xml" '
-        'ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sharedStrings+xml"/>'
-        + "</Types>"
-    )
-
-    with zipfile.ZipFile(path, "w", compression=zipfile.ZIP_DEFLATED) as zf:
-        zf.writestr("[Content_Types].xml", content_types_xml)
-        zf.writestr("_rels/.rels", root_rels_xml)
-        zf.writestr("xl/workbook.xml", workbook_xml)
-        zf.writestr("xl/_rels/workbook.xml.rels", workbook_rels_xml)
-        zf.writestr("xl/styles.xml", styles_xml)
-        zf.writestr("xl/sharedStrings.xml", shared_xml)
-        for idx, xml in enumerate(sheet_xml, start=1):
-            zf.writestr(f"xl/worksheets/sheet{idx}.xml", xml)
+    return pd.DataFrame(rows)
 
 
 def find_input_files(input_root: Path) -> List[Path]:
@@ -582,15 +378,12 @@ def main() -> None:
     if not results:
         raise SystemExit("No files were successfully analyzed.")
 
-    measurement_rows = build_measurement_rows(results)
-    summary_rows = build_summary_rows(results)
-    write_xlsx(
-        args.output_xlsx,
-        sheets=[
-            ("per_measurement", measurement_rows),
-            ("summary", summary_rows),
-        ],
-    )
+    measurement_df = build_measurement_df(results)
+    summary_df = build_summary_df(results)
+    args.output_xlsx.parent.mkdir(parents=True, exist_ok=True)
+    with pd.ExcelWriter(args.output_xlsx, engine="openpyxl") as writer:
+        measurement_df.to_excel(writer, sheet_name="per_measurement", index=False)
+        summary_df.to_excel(writer, sheet_name="summary", index=False)
 
     print(f"Analyzed files: {len(results)}")
     print(f"Output: {args.output_xlsx}")
